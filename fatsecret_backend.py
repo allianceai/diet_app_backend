@@ -25,6 +25,17 @@ FATSECRET_CLIENT_SECRET = os.getenv('FATSECRET_CLIENT_SECRET', 'YOUR_CLIENT_SECR
 cached_token = None
 token_expiry = None
 
+@app.route('/')
+def health_check():
+    """
+    A simple health check endpoint to confirm the service is running.
+    Hosting platforms like Render use this to verify a deployment is healthy.
+    """
+    return jsonify({
+        'status': 'ok',
+        'message': 'FatSecret backend is running.'
+    }), 200
+
 @app.route('/fatsecret_token', methods=['GET'])
 def get_fatsecret_token():
     """
@@ -405,39 +416,22 @@ def lookup_barcode():
             }), response.status_code
             
         response_data = response.json()
-        # The response for food.find_id_for_barcode is simpler, directly gives food_id and food_name
-        # It might be nested under a key like "food_id" -> {"value": "123"} or directly.
-        # Check the actual API response structure. Assuming it's:
-        # { "food_id": { "value": "..." }, "food_name": { "value": "..." } } or similar
-        # OR directly { "food_id": "...", "food_name": "..." }
-        if 'food_id' in response_data and response_data['food_id'] and isinstance(response_data['food_id'], dict) and 'value' in response_data['food_id']:
-             # This structure is for food.get and other methods, barcode might be simpler
-             # For food.find_id_for_barcode, the response is often like:
-             # {"food_id": {"value": "FOOD_ID_FOUND"}} if found
-             # {"error": {"code": NNN, "message": "No item found."}} if not found
-            if 'error' in response_data:
-                 return jsonify({'error': 'Food not found for this barcode', 'details': response_data['error']['message']}), 404
 
-            food_id_data = response_data.get('food_id')
-            if food_id_data and isinstance(food_id_data, dict) and 'value' in food_id_data:
-                food_id_value = food_id_data['value']
-                # For barcode scans, you might need to do a subsequent food.get to get the name
-                # Or, the user proceeds to FoodDetailsPage which does the food.get
-                # For simplicity, we'll just return the ID. FoodDetailsPage will fetch full details.
-                return jsonify({'food_id': food_id_value, 'food_name': 'Food Item (Details will be fetched)'}), 200
-            else:
-                return jsonify({'error': 'Barcode found, but food_id format unexpected', 'details': response_data}), 500
-
-        elif 'error' in response_data: # Handle cases where FatSecret returns an error object
-            error_code = response_data['error'].get('code', 'Unknown')
+        if 'error' in response_data:
             error_message = response_data['error'].get('message', 'Food not found for this barcode or API error.')
-            if error_code == 106 or error_message.lower().contains("no item found"): # Invalid ID or item not found
+            if "no item found" in error_message.lower():
                 return jsonify({'error': 'Food not found for this barcode'}), 404
             return jsonify({'error': error_message, 'details': response_data['error']}), 400
-        else:
-            # If the structure is completely unexpected or food_id is missing
-            print(f"Unexpected response structure from food.find_id_for_barcode: {response_data}")
-            return jsonify({'error': 'Food not found or unexpected API response.'}), 404
+
+        food_id_data = response_data.get('food_id')
+        if food_id_data and isinstance(food_id_data, dict) and 'value' in food_id_data:
+            food_id_value = food_id_data['value']
+            if food_id_value and food_id_value != '0':
+                return jsonify({'food_id': food_id_value}), 200
+        
+        # This will be reached if food_id is not in response, or is malformed, or has value "0" or null.
+        # This is treated as "not found" from the client's perspective.
+        return jsonify({'error': 'Food not found for this barcode', 'details': response_data}), 404
 
     except requests.RequestException as e:
         return jsonify({'error': 'Exception during FatSecret barcode lookup', 'details': str(e)}), 500
