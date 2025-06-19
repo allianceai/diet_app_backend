@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: diet-app-backend
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -b 0.0.0.0:$PORT fatsecret_backend:app"
+    envVars:
+      - key: FATSECRET_CLIENT_ID
+        sync: false
+      - key: FATSECRET_CLIENT_SECRET
+        sync: false
